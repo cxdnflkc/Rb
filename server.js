@@ -11,13 +11,12 @@ const PORT = process.env.PORT || 10000;
 const API_KEY = process.env.API_KEY;
 
 let modelInstance = null;
-let llamaContext = null;
+let llamaInstance = null;
 let isModelLoaded = false;
 
 const MODEL_URL = "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q3_k_m.gguf";
 const MODEL_PATH = path.join(__dirname, "qwen2.5-0.5b-instruct-q3_k_m.gguf");
 
-// Stream İndirme Fonksiyonu
 function downloadModelStream(url, destPath) {
     return new Promise((resolve, reject) => {
         if (fs.existsSync(destPath)) {
@@ -55,24 +54,20 @@ function downloadModelStream(url, destPath) {
     });
 }
 
-// Modeli Başlatma
 async function initModel() {
     try {
-        console.log("node-llama-cpp yukleniyor...");
+        console.log("node-llama-cpp yükleniyor...");
         const { getLlama } = await import('node-llama-cpp');
 
         await downloadModelStream(MODEL_URL, MODEL_PATH);
 
         console.log("Llama örneği başlatılıyor...");
-        const llama = await getLlama();
+        llamaInstance = await getLlama();
 
         console.log("Model RAM'e yükleniyor...");
-        modelInstance = await llama.loadModel({
+        modelInstance = await llamaInstance.loadModel({
             modelPath: MODEL_PATH
         });
-
-        console.log("Context oluşturuluyor...");
-        llamaContext = await modelInstance.createContext({ contextSize: 512 });
 
         isModelLoaded = true;
         console.log("Model başarıyla yüklendi ve hazır!");
@@ -83,7 +78,6 @@ async function initModel() {
 
 initModel();
 
-// API Key Kontrolü
 const checkApiKey = (req, res, next) => {
     const userKey = req.headers['x-api-key'] || req.headers['authorization']?.replace('Bearer ', '');
     if (!userKey || userKey !== API_KEY) {
@@ -92,12 +86,10 @@ const checkApiKey = (req, res, next) => {
     next();
 };
 
-// 1. Ana Sayfa
 app.get('/', (req, res) => {
     res.send('AI Servisi Çalışıyor!');
 });
 
-// 2. UptimeRobot İçin Aktif Tutma (Health-Check) Endpoint'i
 app.get('/ping', (req, res) => {
     if (!isModelLoaded) {
         return res.status(530).send('Model yukleniyor...');
@@ -105,9 +97,8 @@ app.get('/ping', (req, res) => {
     res.status(200).send('pong');
 });
 
-// 3. Chat Endpoint (Esnek Format Destekli)
+// Chat Endpoint
 app.post('/chat', checkApiKey, async (req, res) => {
-    // Hem { prompt: "mesaj" } hem de { messages: [{ content: "mesaj" }] } formatını kabul eder
     let userPrompt = req.body.prompt;
     
     if (!userPrompt && Array.isArray(req.body.messages) && req.body.messages.length > 0) {
@@ -116,27 +107,36 @@ app.post('/chat', checkApiKey, async (req, res) => {
     }
 
     if (!userPrompt) {
-        return res.status(400).json({ error: 'Prompt veya messages alanı boş olamaz.' });
+        return res.status(400).json({ error: 'Prompt alanı boş olamaz.' });
     }
 
     if (!isModelLoaded) {
-        return res.status(530).json({ error: 'Model henüz uyanıyor veya yükleniyor, lütfen birkaç saniye sonra tekrar deneyin.' });
+        return res.status(530).json({ error: 'Model henüz uyanıyor veya yükleniyor...' });
     }
 
+    let context = null;
     try {
         const { LlamaChatSession } = await import('node-llama-cpp');
-        // Her istek için izole edilmiş taze session oluşturulur
-        const session = new LlamaChatSession({ contextSequence: llamaContext.getSequence() });
+
+        // Her istek için isolated (izole) context ve session açıp kapatıyoruz (RAM sızıntısını ve Sequence kilitlenmesini önler)
+        context = await modelInstance.createContext({ contextSize: 512 });
+        const session = new LlamaChatSession({ contextSequence: context.getSequence() });
         
-        const response = await session.prompt(userPrompt, { maxTokens: 120 });
+        const response = await session.prompt(userPrompt, { maxTokens: 100 });
         
+        // Context işi bittiğinde belleği temizle
+        await context.dispose();
+
         res.json({
             status: 'success',
             response: response
         });
     } catch (error) {
-        console.error("AI Yanıt Hatası:", error);
-        res.status(500).json({ error: 'Yapay zeka yanıt üretirken bir hata oluştu.' });
+        console.error("AI Yanıt Hatası Detayı:", error);
+        if (context) {
+            try { await context.dispose(); } catch (e) {}
+        }
+        res.status(500).json({ error: 'Yapay zeka yanıt üretirken bir hata oluştu.', detail: error.message });
     }
 });
 
