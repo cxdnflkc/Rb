@@ -10,7 +10,7 @@ const API_KEY = process.env.API_KEY;
 let session = null;
 let isModelLoaded = false;
 
-// Qwen2.5-0.5B Modelini Güncel v3 API İle Yükleme
+// Qwen2.5-0.5B Modelini Doğrudan HuggingFace URL'si İle Yükleme
 async function initModel() {
     try {
         console.log("node-llama-cpp yükleniyor...");
@@ -20,8 +20,10 @@ async function initModel() {
         const llama = await getLlama();
 
         console.log("Model indiriliyor ve yükleniyor (Qwen2.5-0.5B)...");
+        const modelPath = "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q3_k_m.gguf";
+
         const model = await llama.loadModel({
-            modelUri: "hf:Qwen/Qwen2.5-0.5B-Instruct-GGUF/qwen2.5-0.5b-instruct-q3_k_m.gguf"
+            modelPath: modelPath
         });
 
         console.log("Context oluşturuluyor...");
