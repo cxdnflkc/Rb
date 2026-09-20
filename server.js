@@ -1,21 +1,77 @@
-FROM node:18-slim
+require('dotenv').config();
+const express = require('express');
+const { LlamaModel, LlamaContext, LlamaChatSession, HuggingFaceModelRepository } = require('node-llama-cpp');
 
-# llama.cpp'nin indirilmesi ve derlenmesi için gerekli araçları yüklüyoruz
-RUN apt-get update && apt-get install -y \
-    git \
-    build-essential \
-    cmake \
-    python3 \
-    && rm -rf /var/lib/apt/lists/*
+const app = express();
+app.use(express.json());
 
-WORKDIR /app
+const PORT = process.env.PORT || 10000;
+const API_KEY = process.env.API_KEY;
 
-COPY package*.json ./
+let session = null;
+let isModelLoaded = false;
 
-RUN npm install --production
+// Qwen2.5-0.5B Modelini Arka Planda Yükleme Fonksiyonu
+async function initModel() {
+    try {
+        console.log("Model indiriliyor ve yükleniyor...");
+        const repository = new HuggingFaceModelRepository({
+            repo: "Qwen/Qwen2.5-0.5B-Instruct-GGUF"
+        });
+        const modelPath = await repository.downloadModel("qwen2.5-0.5b-instruct-q3_k_m.gguf");
 
-COPY . .
+        const model = new LlamaModel({ modelPath });
+        const context = new LlamaContext({ model, contextSize: 512 });
+        session = new LlamaChatSession({ contextSequence: context.getSequence() });
+        
+        isModelLoaded = true;
+        console.log("Model başarıyla yüklendi!");
+    } catch (err) {
+        console.error("Model yükleme hatası:", err);
+    }
+}
 
-EXPOSE 10000
+// Sunucu başlarken modeli yükle
+initModel();
 
-CMD ["npm", "start"]
+// Güvenlik Kontrolü (x-api-key Middelware)
+const checkApiKey = (req, res, next) => {
+    const userKey = req.headers['x-api-key'];
+    if (!userKey || userKey !== API_KEY) {
+        return res.status(401).json({ error: 'Yetkisiz Erişim: Geçersiz API Key!' });
+    }
+    next();
+};
+
+// Ana Sayfa Testi
+app.get('/', (req, res) => {
+    res.send('AI Servisi Aktif!');
+});
+
+// Chat Endpoint
+app.post('/chat', checkApiKey, async (req, res) => {
+    const { prompt } = req.body;
+
+    if (!prompt) {
+        return res.status(400).json({ error: 'Prompt alanı boş olamaz.' });
+    }
+
+    if (!isModelLoaded) {
+        return res.status(530).json({ error: 'Model henüz yükleniyor, lütfen birkaç saniye sonra tekrar deneyin.' });
+    }
+
+    try {
+        const response = await session.prompt(prompt, { maxTokens: 150 });
+        res.json({
+            status: 'success',
+            response: response
+        });
+    } catch (error) {
+        console.error("AI Yanıt Hatası:", error);
+        res.status(500).json({ error: 'Yapay zeka yanıt üretirken bir hata oluştu.' });
+    }
+});
+
+app.listen(PORT, () => {
+    console.log(`Sunucu ${PORT} portunda çalışıyor.`);
+});
