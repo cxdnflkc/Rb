@@ -1,3 +1,4 @@
+
 require('dotenv').config();
 const express = require('express');
 
@@ -7,7 +8,7 @@ app.use(express.json());
 const PORT = process.env.PORT || 10000;
 const API_KEY = process.env.API_KEY;
 
-// Güvenlik Kontrolü Middleware
+// Güvenlik Kontrolü (API Key)
 const checkApiKey = (req, res, next) => {
     const userKey = req.headers['x-api-key'];
     if (!userKey || userKey !== API_KEY) {
@@ -16,12 +17,12 @@ const checkApiKey = (req, res, next) => {
     next();
 };
 
-// Ana Sayfa Testi
+// Test Ana Sayfası
 app.get('/', (req, res) => {
-    res.send('AI Servisi Aktif!');
+    res.send('AI Servisi Aktif ve Çalışıyor!');
 });
 
-// EKSİK OLAN KISIM: /chat POST Rotası
+// HATA VEREN KISIM BURASIYDI - EKLENDİ
 app.post('/chat', checkApiKey, (req, res) => {
     const { prompt } = req.body;
 
@@ -29,13 +30,12 @@ app.post('/chat', checkApiKey, (req, res) => {
         return res.status(400).json({ error: 'Prompt alanı boş olamaz.' });
     }
 
-    // Başarılı yanıt
     res.json({
         status: 'success',
-        response: `Alınan prompt: "${prompt}"`
+        response: `İsteğiniz başarıyla alındı: "${prompt}"`
     });
 });
 
 app.listen(PORT, () => {
-    console.log(`Sunucu ${PORT} portunda dinleniyor.`);
+    console.log(`Sunucu ${PORT} portunda çalışıyor.`);
 });
