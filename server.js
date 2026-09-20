@@ -10,34 +10,35 @@ const API_KEY = process.env.API_KEY;
 let session = null;
 let isModelLoaded = false;
 
-// Qwen2.5-0.5B Modelini Dinamik Import İle Yükleme
+// Qwen2.5-0.5B Modelini Güncel v3 API İle Yükleme
 async function initModel() {
     try {
-        console.log("Model kütüphanesi yükleniyor...");
-        // node-llama-cpp modülünü dinamik import() ile çağırıyoruz
-        const { LlamaModel, LlamaContext, LlamaChatSession, HuggingFaceModelRepository } = await import('node-llama-cpp');
+        console.log("node-llama-cpp yükleniyor...");
+        const { getLlama, LlamaChatSession } = await import('node-llama-cpp');
 
-        console.log("Model indiriliyor...");
-        const repository = new HuggingFaceModelRepository({
-            repo: "Qwen/Qwen2.5-0.5B-Instruct-GGUF"
+        console.log("Llama örneği başlatılıyor...");
+        const llama = await getLlama();
+
+        console.log("Model indiriliyor ve yükleniyor (Qwen2.5-0.5B)...");
+        const model = await llama.loadModel({
+            modelUri: "hf:Qwen/Qwen2.5-0.5B-Instruct-GGUF/qwen2.5-0.5b-instruct-q3_k_m.gguf"
         });
-        const modelPath = await repository.downloadModel("qwen2.5-0.5b-instruct-q3_k_m.gguf");
 
-        const model = new LlamaModel({ modelPath });
-        const context = new LlamaContext({ model, contextSize: 512 });
+        console.log("Context oluşturuluyor...");
+        const context = await model.createContext({ contextSize: 512 });
         session = new LlamaChatSession({ contextSequence: context.getSequence() });
-        
+
         isModelLoaded = true;
-        console.log("Model başarıyla yüklendi!");
+        console.log("Model başarıyla yüklendi ve hazır!");
     } catch (err) {
         console.error("Model yükleme hatası:", err);
     }
 }
 
-// Sunucu başlarken modeli arka planda başlat
+// Sunucu başlarken modeli arka planda yükle
 initModel();
 
-// API Key Doğrulama
+// API Key Doğrulama Middleware
 const checkApiKey = (req, res, next) => {
     const userKey = req.headers['x-api-key'];
     if (!userKey || userKey !== API_KEY) {
@@ -50,7 +51,7 @@ app.get('/', (req, res) => {
     res.send('AI Servisi Aktif!');
 });
 
-// Chat Endpoint
+// Yapay Zeka Chat Endpoint'i
 app.post('/chat', checkApiKey, async (req, res) => {
     const { prompt } = req.body;
 
