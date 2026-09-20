@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
+const https = require('https');
 
 const app = express();
 app.use(express.json());
@@ -15,20 +16,44 @@ let isModelLoaded = false;
 const MODEL_URL = "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q3_k_m.gguf";
 const MODEL_PATH = path.join(__dirname, "qwen2.5-0.5b-instruct-q3_k_m.gguf");
 
-// Doğrudan dosyayı indirme fonksiyonu
-async function downloadModelFile(url, destPath) {
-    if (fs.existsSync(destPath)) {
-        console.log("Model dosyası zaten mevcut, indirme atlanıyor.");
-        return;
-    }
-    console.log("Model dosyası indiriliyor...");
-    const response = await fetch(url);
-    if (!response.ok) throw new Error(`İndirme başarısız: ${response.statusText}`);
-    
-    const arrayBuffer = await response.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-    await fs.promises.writeFile(destPath, buffer);
-    console.log("Model başarıyla diske indirildi!");
+// RAM Kullanmayan Akışlı (Stream) İndirme Fonksiyonu
+function downloadModelStream(url, destPath) {
+    return new Promise((resolve, reject) => {
+        if (fs.existsSync(destPath)) {
+            console.log("Model dosyası zaten diske indirilmiş, indirme atlanıyor.");
+            return resolve();
+        }
+
+        console.log("Model dosyası akış (stream) ile diske indiriliyor...");
+        const fileStream = fs.createWriteStream(destPath);
+
+        const handleDownload = (downloadUrl) => {
+            https.get(downloadUrl, (response) => {
+                // HuggingFace yönlendirmelerini (302 Redirect) takip et
+                if (response.statusCode === 301 || response.statusCode === 302) {
+                    return handleDownload(response.headers.location);
+                }
+
+                if (response.statusCode !== 200) {
+                    return reject(new Error(`İndirme başarısız: HTTP Status ${response.statusCode}`));
+                }
+
+                response.pipe(fileStream);
+
+                fileStream.on('finish', () => {
+                    fileStream.close(() => {
+                        console.log("Model dosyası RAM harcanmadan başarıyla diske indirildi!");
+                        resolve();
+                    });
+                });
+            }).on('error', (err) => {
+                fs.unlink(destPath, () => {});
+                reject(err);
+            });
+        };
+
+        handleDownload(url);
+    });
 }
 
 async function initModel() {
@@ -36,10 +61,10 @@ async function initModel() {
         console.log("node-llama-cpp yükleniyor...");
         const { getLlama, LlamaChatSession } = await import('node-llama-cpp');
 
-        // 1. Modeli Önce Diske İndir
-        await downloadModelFile(MODEL_URL, MODEL_PATH);
+        // 1. Modeli RAM'i şişirmeden akışla diske indir
+        await downloadModelStream(MODEL_URL, MODEL_PATH);
 
-        // 2. Llama Örneğini Başlat ve Yerel Dosyadan Yükle
+        // 2. Llama örneğini başlat ve yerel dosyadan yükle
         console.log("Llama örneği başlatılıyor...");
         const llama = await getLlama();
 
