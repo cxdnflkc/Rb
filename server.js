@@ -1,6 +1,5 @@
 require('dotenv').config();
 const express = require('express');
-const { LlamaModel, LlamaContext, LlamaChatSession, HuggingFaceModelRepository } = require('node-llama-cpp');
 
 const app = express();
 app.use(express.json());
@@ -11,10 +10,14 @@ const API_KEY = process.env.API_KEY;
 let session = null;
 let isModelLoaded = false;
 
-// Qwen2.5-0.5B Modelini Arka Planda Yükleme Fonksiyonu
+// Qwen2.5-0.5B Modelini Dinamik Import İle Yükleme
 async function initModel() {
     try {
-        console.log("Model indiriliyor ve yükleniyor...");
+        console.log("Model kütüphanesi yükleniyor...");
+        // node-llama-cpp modülünü dinamik import() ile çağırıyoruz
+        const { LlamaModel, LlamaContext, LlamaChatSession, HuggingFaceModelRepository } = await import('node-llama-cpp');
+
+        console.log("Model indiriliyor...");
         const repository = new HuggingFaceModelRepository({
             repo: "Qwen/Qwen2.5-0.5B-Instruct-GGUF"
         });
@@ -31,10 +34,10 @@ async function initModel() {
     }
 }
 
-// Sunucu başlarken modeli yükle
+// Sunucu başlarken modeli arka planda başlat
 initModel();
 
-// Güvenlik Kontrolü (x-api-key Middelware)
+// API Key Doğrulama
 const checkApiKey = (req, res, next) => {
     const userKey = req.headers['x-api-key'];
     if (!userKey || userKey !== API_KEY) {
@@ -43,7 +46,6 @@ const checkApiKey = (req, res, next) => {
     next();
 };
 
-// Ana Sayfa Testi
 app.get('/', (req, res) => {
     res.send('AI Servisi Aktif!');
 });
