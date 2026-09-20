@@ -1,12 +1,38 @@
-
 require('dotenv').config();
 const express = require('express');
+const { LlamaModel, LlamaContext, LlamaChatSession, HuggingFaceModelRepository } = require('node-llama-cpp');
+const path = require('path');
 
 const app = express();
 app.use(express.json());
 
 const PORT = process.env.PORT || 10000;
 const API_KEY = process.env.API_KEY;
+
+let session = null;
+let isModelLoaded = false;
+
+// Qwen2.5-0.5B Modelini Arka Planda Yükle
+async function initModel() {
+    try {
+        console.log("Model indiriliyor ve yükleniyor...");
+        const repository = new HuggingFaceModelRepository({
+            repo: "Qwen/Qwen2.5-0.5B-Instruct-GGUF"
+        });
+        const modelPath = await repository.downloadModel("qwen2.5-0.5b-instruct-q3_k_m.gguf");
+
+        const model = new LlamaModel({ modelPath });
+        const context = new LlamaContext({ model, contextSize: 512 });
+        session = new LlamaChatSession({ contextSequence: context.getSequence() });
+        
+        isModelLoaded = true;
+        console.log("Model başarıyla yüklendi!");
+    } catch (err) {
+        console.error("Model yükleme hatası:", err);
+    }
+}
+
+initModel();
 
 // Güvenlik Kontrolü (API Key)
 const checkApiKey = (req, res, next) => {
@@ -17,23 +43,32 @@ const checkApiKey = (req, res, next) => {
     next();
 };
 
-// Test Ana Sayfası
 app.get('/', (req, res) => {
-    res.send('AI Servisi Aktif ve Çalışıyor!');
+    res.send('AI Servisi Aktif!');
 });
 
-// HATA VEREN KISIM BURASIYDI - EKLENDİ
-app.post('/chat', checkApiKey, (req, res) => {
+// Yapay Zeka Yanıt Endpoint'i
+app.post('/chat', checkApiKey, async (req, res) => {
     const { prompt } = req.body;
 
     if (!prompt) {
         return res.status(400).json({ error: 'Prompt alanı boş olamaz.' });
     }
 
-    res.json({
-        status: 'success',
-        response: `İsteğiniz başarıyla alındı: "${prompt}"`
-    });
+    if (!isModelLoaded) {
+        return res.status(530).json({ error: 'Model henüz yükleniyor, lütfen birkaç saniye sonra tekrar deneyin.' });
+    }
+
+    try {
+        const response = await session.prompt(prompt, { maxTokens: 150 });
+        res.json({
+            status: 'success',
+            response: response
+        });
+    } catch (error) {
+        console.error("AI Yanıt Hatası:", error);
+        res.status(500).json({ error: 'Yapay zeka yanıt üretirken bir hata oluştu.' });
+    }
 });
 
 app.listen(PORT, () => {
